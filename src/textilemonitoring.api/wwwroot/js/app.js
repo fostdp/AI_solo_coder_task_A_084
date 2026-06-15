@@ -7,6 +7,9 @@ let chartInstances = {};
 let currentPage = 1;
 const PAGE_SIZE = 20;
 
+let _embroideryImage = null;
+let _mildewOverlay = null;
+
 document.addEventListener('DOMContentLoaded', init);
 
 function init() {
@@ -1033,6 +1036,55 @@ function hexToRgba(hex, a) {
 
 function drawFullTextile(textile, showHoles, showMold) {
     currentTextile = textile;
+
+    if (typeof EmbroideryImage !== 'undefined' && typeof MildewOverlay !== 'undefined') {
+        try {
+            if (!_embroideryImage) {
+                _embroideryImage = new EmbroideryImage('textileCanvas', {
+                    width: 900,
+                    height: 600,
+                    showGrid: true,
+                    showBorder: true
+                });
+            }
+            _embroideryImage.setTextile(textile);
+            _embroideryImage.setScale(canvasScale);
+
+            if (!_mildewOverlay) {
+                _mildewOverlay = new MildewOverlay('overlayCanvas', {
+                    width: 900,
+                    height: 600
+                });
+            }
+
+            const holes = showHoles !== false ? (textile?.holeMarkers || generateMockHoles(textile?.id || 1)) : [];
+            const molds = showMold !== false ? (textile?.moldRegions || generateMockMolds(textile?.id || 1)) : [];
+
+            const holeMarkers = holes.map(h => ({
+                x: (h.relativeX || h.positionX || 0.5) * 900,
+                y: (h.relativeY || h.positionY || 0.5) * 600,
+                radius: Math.max(3, (h.radius || h.radiusMm || 6)),
+                severity: h.severityLevel || h.severity || 2
+            }));
+
+            const moldRegions = molds.map(m => ({
+                x: (m.relativeX || m.centerX || 0.5) * 900,
+                y: (m.relativeY || m.centerY || 0.5) * 600,
+                radius: Math.max(20, (m.radius || m.radiusMm || 40)),
+                seed: (textile?.id || 1) * 1000 + (m.id || 0),
+                alpha: 0.85
+            }));
+
+            _mildewOverlay.setData(holeMarkers, moldRegions);
+            _mildewOverlay.render();
+
+            applyCanvasTransform();
+            return;
+        } catch (e) {
+            console.warn('使用新组件失败，回退到旧方法:', e);
+        }
+    }
+
     if (typeof MildewCanvas !== 'undefined') {
         MildewCanvas.drawFullTextile(textile, showHoles, showMold, canvasScale);
         return;
@@ -1251,6 +1303,14 @@ function zoomCanvas(delta) {
         const info = document.getElementById('canvasZoom');
         if (info) info.textContent = `${Math.round(canvasScale*100)}%`;
 
+        if (_embroideryImage && currentTextile) {
+            _embroideryImage.setScale(canvasScale);
+            if (_mildewOverlay) {
+                _mildewOverlay.setScale(canvasScale);
+            }
+            return;
+        }
+
         if (typeof MildewCanvas !== 'undefined' && currentTextile) {
             MildewCanvas.scheduleRedraw('textileCanvas', () => {
                 MildewCanvas.drawFullTextile(currentTextile,
@@ -1265,8 +1325,15 @@ function zoomCanvas(delta) {
 function resetCanvas() {
     canvasScale = 1;
     applyCanvasTransform();
-    const info = document.getElementById('zoomInfo');
+    const info = document.getElementById('canvasZoom');
     if (info) info.textContent = '100%';
+
+    if (_embroideryImage) {
+        _embroideryImage.resetView();
+    }
+    if (_mildewOverlay) {
+        _mildewOverlay.setScale(1);
+    }
 }
 
 function exportCanvas() {

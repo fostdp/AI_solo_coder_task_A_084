@@ -1,10 +1,11 @@
 
 using System.Text.Json.Serialization;
-using Microsoft.EntityFrameworkCore;
-using TextileMonitoring.API.Data;
+using MassTransit;
 using TextileMonitoring.API.Services;
-using TextileMonitoring.API.SqlServer;
-using TextileMonitoring.API.ZigBee;
+using TextileMonitoring.Contracts.Messages;
+using TextileMonitoring.Contracts.RabbitMQ;
+using TextileMonitoring.Data;
+using TextileMonitoring.Data.Repositories;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,53 +21,137 @@ builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
     {
-        Title = "古代织绣品虫蛀与霉变协同监测系统 API",
+        Title = "古代织绣品虫蛀与霉变协同监测系统 API Gateway",
         Version = "v1",
-        Description = "织绣品保护实验室 - 虫蛀孔洞与霉菌协同监测平台"
+        Description = "织绣品保护实验室 - 微服务架构API网关"
     });
 });
 
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-{
-    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-    options.UseSqlServer(connectionString, sqlOptions =>
-    {
-        sqlOptions.CommandTimeout(120);
-        sqlOptions.EnableRetryOnFailure(
-            maxRetryCount: 5,
-            maxRetryDelay: TimeSpan.FromSeconds(10),
-            errorNumbersToAdd: null);
-    });
-});
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+builder.Services.AddTextileDbContext(connectionString);
+builder.Services.AddDataRepositories();
+
+builder.Services.AddScoped<IPredictionGatewayService, PredictionGatewayService>();
+builder.Services.AddScoped<IAlertService, AlertService>();
+builder.Services.AddScoped<ISensorDataService, SensorDataService>();
 
 builder.Services.AddHttpClient();
 
-builder.Services.AddScoped<IPredictionService, PredictionService>();
-builder.Services.AddScoped<IAlertNotificationService, AlertNotificationService>();
-builder.Services.AddScoped<IAlertService, AlertService>();
-builder.Services.AddScoped<ISensorDataService, SensorDataService>();
-builder.Services.AddScoped<ISqlServerBatchWriter, SqlServerBatchWriter>();
+var rabbitMqConfig = builder.Configuration.GetSection("RabbitMQ");
+builder.Services.AddMassTransit(x =>
+{
+    x.SetKebabCaseEndpointNameFormatter();
+    x.SetSnakeCaseEntityNameFormatter();
 
-builder.Services.AddHostedService<ZigBeeUdpListener>();
+    x.AddRequestClient<SensorDataReceived>(new Uri($"exchange:{QueueNames.Exchanges.Sensor}"));
+
+    x.UsingRabbitMq((busContext, cfg) =>
+    {
+        var host = rabbitMqConfig["Host"] ?? "localhost";
+        var port = ushort.Parse(rabbitMqConfig["Port"] ?? "5672");
+        var vhost = rabbitMqConfig["VirtualHost"] ?? "/";
+        var username = rabbitMqConfig["Username"] ?? "guest";
+        var password = rabbitMqConfig["Password"] ?? "guest";
+        var prefetchCount = ushort.Parse(rabbitMqConfig["PrefetchCount"] ?? "16");
+        var retryCount = int.Parse(rabbitMqConfig["RetryCount"] ?? "3");
+
+        cfg.Host(host, port, vhost, h =>
+        {
+            h.Username(username);
+            h.Password(password);
+            h.Heartbeat(TimeSpan.FromSeconds(30));
+        });
+
+        cfg.UseMessageRetry(r => r.Exponential(
+            retryLimit: retryCount,
+            minDelay: TimeSpan.FromMilliseconds(100),
+            maxDelay: TimeSpan.FromSeconds(10),
+            delta: TimeSpan.FromMilliseconds(500)));
+
+        cfg.UseCircuitBreaker(cb =>
+        {
+            cb.TrackingPeriod = TimeSpan.FromMinutes(1);
+            cb.TripThreshold = 0.5;
+            cb.ActiveThreshold = 10;
+            cb.ResetInterval = TimeSpan.FromMinutes(1);
+        });
+
+        cfg.ConfigureJsonSerializerOptions(opt =>
+        {
+            opt.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+        });
+
+        cfg.Send<SensorDataReceived>(s =>
+        {
+            s.UseCorrelationId(ctx => ctx.CorrelationId);
+        });
+
+        cfg.Publish<SensorDataReceived>(p =>
+        {
+            p.ExchangeType = "topic";
+        });
+
+        cfg.Publish<PopulationPredictionGenerated>(p =>
+        {
+            p.ExchangeType = "topic";
+        });
+
+        cfg.Publish<MildewPredictionGenerated>(p =>
+        {
+            p.ExchangeType = "topic";
+        });
+
+        cfg.Publish<AlertTriggered>(p =>
+        {
+            p.ExchangeType = "topic";
+        });
+
+        cfg.ReceiveEndpoint("textile.gateway.population", e =>
+        {
+            e.PrefetchCount = prefetchCount;
+            e.UseMessageRetry(r => r.Immediate(retryCount));
+            e.UseDeadLetterQueue("textile.gateway.population.dlq");
+        });
+
+        cfg.ReceiveEndpoint("textile.gateway.mildew", e =>
+        {
+            e.PrefetchCount = prefetchCount;
+            e.UseMessageRetry(r => r.Immediate(retryCount));
+            e.UseDeadLetterQueue("textile.gateway.mildew.dlq");
+        });
+    });
+});
+
+builder.Services.AddMassTransitHostedService();
 
 builder.Services.AddCors(options =>
 {
+    var corsOrigins = builder.Configuration["Gateway:CorsOrigins"] ?? "*";
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
+        if (corsOrigins == "*")
+        {
+            policy.AllowAnyOrigin()
+                  .AllowAnyMethod()
+                  .AllowAnyHeader();
+        }
+        else
+        {
+            policy.WithOrigins(corsOrigins.Split(','))
+                  .AllowAnyMethod()
+                  .AllowAnyHeader();
+        }
     });
 });
 
 var app = builder.Build();
 
-if (app.Environment.IsDevelopment())
+if (app.Environment.IsDevelopment() || bool.Parse(builder.Configuration["Gateway:EnableSwagger"] ?? "true"))
 {
     app.UseSwagger();
     app.UseSwaggerUI(c =>
     {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "织绣品监测 API V1");
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "织绣品监测 API Gateway V1");
     });
 }
 
@@ -83,10 +168,10 @@ app.MapControllers();
 
 app.MapFallbackToFile("index.html");
 
-app.Logger.LogInformation("古代织绣品虫蛀与霉变协同监测系统启动成功！");
+app.Logger.LogInformation("古代织绣品虫蛀与霉变协同监测系统 - API Gateway 启动成功！");
 app.Logger.LogInformation("监听地址: http://localhost:5000");
 app.Logger.LogInformation("Swagger文档: http://localhost:5000/swagger");
-app.Logger.LogInformation("ZigBee监听器: 端口8684 (BackgroundService托管)");
-app.Logger.LogInformation("ODE求解器: MathNet.Numerics + RK45自适应步长 (ode/solver.cs)");
+app.Logger.LogInformation("架构模式: 微服务 + API网关 + RabbitMQ事件驱动");
+app.Logger.LogInformation("微服务: zigbee_ingest | population_sim | mildew_gompertz | alert_dispatch");
 
 app.Run("http://0.0.0.0:5000");

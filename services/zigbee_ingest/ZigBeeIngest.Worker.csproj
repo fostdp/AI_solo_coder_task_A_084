@@ -1,0 +1,25 @@
+
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>ZigBeeIngest.Worker</RootNamespace>
+    <AssemblyName>ZigBeeIngest.Worker</AssemblyName>
+    <UserSecretsId>ZigBeeIngest-Worker-8B4C3D2E-5F6A-7890-BCDE-F12345678901</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\shared\TextileMonitoring.Contracts\TextileMonitoring.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\TextileMonitoring.Data\TextileMonitoring.Data.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MassTransit" Version="8.2.0" />
+    <PackageReference Include="MassTransit.RabbitMQ" Version="8.2.0" />
+    <PackageReference Include="Serilog.AspNetCore" Version="8.0.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="5.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="5.0.0" />
+    <PackageReference Include="System.Text.Json" Version="8.0.0" />
+  </ItemGroup>
+</Project>

@@ -23,6 +23,13 @@
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
     <PackageReference Include="MathNet.Numerics" Version="5.0.0" />
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.0" />
+    <PackageReference Include="MassTransit" Version="8.2.0" />
+    <PackageReference Include="MassTransit.RabbitMQ" Version="8.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\shared\TextileMonitoring.Contracts\TextileMonitoring.Contracts.csproj" />
+    <ProjectReference Include="..\..\shared\TextileMonitoring.Data\TextileMonitoring.Data.csproj" />
   </ItemGroup>
 
 </Project>
