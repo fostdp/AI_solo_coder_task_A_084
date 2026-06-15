@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using TextileMonitoring.API.Data;
 using TextileMonitoring.API.DTOs;
 using TextileMonitoring.API.Models;
+using TextileMonitoring.API.Pest;
 
 namespace TextileMonitoring.API.Services
 {
@@ -81,13 +82,21 @@ namespace TextileMonitoring.API.Services
                 .Select(d => new { d.ReadingTime, d.HoleDensity, d.HoleCount, d.Temperature, d.Humidity })
                 .ToListAsync();
 
-            var (r, K, N0) = FitLogisticParameters(historicalData);
+            var avgTemp = historicalData.Any(d => d.Temperature.HasValue)
+                ? historicalData.Where(d => d.Temperature.HasValue).Average(d => d.Temperature!.Value)
+                : 22m;
+            var avgHum = historicalData.Any(d => d.Humidity.HasValue)
+                ? historicalData.Where(d => d.Humidity.HasValue).Average(d => d.Humidity!.Value)
+                : 55m;
+
+            var lvParams = LotkaVolterraModel.FitParameters(historicalData, avgTemp, avgHum);
+            var lvResults = LotkaVolterraModel.Simulate(lvParams, horizonDays);
 
             var result = new PredictionResultDto
             {
                 TextileId = textileId,
                 TextileName = textile.Name,
-                Model = (int)PredictionModel.Logistic,
+                Model = (int)PredictionModel.LotkaVolterra,
                 HorizonDays = horizonDays,
                 RiskLevel = (int)RiskLevel.Low
             };
@@ -101,20 +110,17 @@ namespace TextileMonitoring.API.Services
             for (int t = 0; t <= horizonDays; t++)
             {
                 var date = lastDate.AddDays(t);
-                var envFactor = CalculateEnvironmentFactor(historicalData);
-                var predicted = LogisticGrowth(r, K, N0, t, envFactor);
+                var predicted = lvResults[t].PestDensity;
                 maxPredicted = Math.Max(maxPredicted, predicted);
 
                 result.DataPoints.Add(new PredictionPointDto
                 {
                     Date = date,
-                    PredictedHoleDensity = Math.Round(predicted, 4)
+                    PredictedHoleDensity = Math.Round(predicted, 4),
+                    PredatorDensity = lvResults[t].PredatorDensity,
+                    PredationRate = lvResults[t].PredationRate
                 });
             }
-
-            var lastActual = historicalData.Any()
-                ? historicalData.OrderByDescending(d => d.ReadingTime).First().HoleDensity
-                : 0;
 
             var latestFungi = await _context.FungiSensorData
                 .Where(f => f.TextileId == textileId)
@@ -127,7 +133,7 @@ namespace TextileMonitoring.API.Services
             result.RiskLevel = CalculateHoleRiskLevel(maxPredicted);
             result.Confidence = CalculateConfidence(historicalData.Count);
 
-            await SavePrediction(textileId, PredictionModel.Logistic, horizonDays,
+            await SavePrediction(textileId, PredictionModel.LotkaVolterra, horizonDays,
                 maxPredicted, null, synergyRisk, result.Confidence.Value, (RiskLevel)result.RiskLevel);
 
             return result;

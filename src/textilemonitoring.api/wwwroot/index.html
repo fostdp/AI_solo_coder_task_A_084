@@ -344,9 +344,10 @@
                     <div class="algo-card">
                         <div class="algo-icon">📐</div>
                         <div>
-                            <h4>Logistic 方程 (虫蛀种群)</h4>
-                            <p class="formula">dN/dt = rN(1 - N/K)</p>
-                            <p class="algo-desc">基于种群生态学，预测蛀虫种群增长及孔洞密度演化</p>
+                            <h4>Lotka-Volterra 捕食模型 (虫蛀种群+拟蝎天敌)</h4>
+                            <p class="formula">dN/dt = rN(1 - N/K) - αNP</p>
+                            <p class="formula">dP/dt = βNP - δP</p>
+                            <p class="algo-desc">引入拟蝎(Cheyletus)捕食项αNP，修正过估计偏差，更真实反映蛀虫种群动态</p>
                         </div>
                     </div>
                     <div class="algo-card">
@@ -445,6 +446,7 @@
 
     <div id="toast" class="toast"></div>
 
+    <script src="js/mildew_canvas.js"></script>
     <script src="js/app.js?v=20250102"></script>
 </body>
 </html>

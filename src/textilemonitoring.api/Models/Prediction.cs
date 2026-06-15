@@ -8,7 +8,8 @@ namespace TextileMonitoring.API.Models
     {
         Logistic = 1,
         Gompertz = 2,
-        Synergy = 3
+        Synergy = 3,
+        LotkaVolterra = 4
     }
 
     public enum RiskLevel

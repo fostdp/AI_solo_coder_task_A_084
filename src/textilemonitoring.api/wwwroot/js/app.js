@@ -896,6 +896,10 @@ function smoothNoise(x, y, seed, octaves) {
 }
 
 function drawMiniTextilePattern(canvasId, id, data) {
+    if (typeof MildewCanvas !== 'undefined') {
+        MildewCanvas.drawMiniPattern(canvasId, id, data);
+        return;
+    }
     const canvas = document.getElementById(canvasId);
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
@@ -975,6 +979,10 @@ function drawMiniTextilePattern(canvasId, id, data) {
 }
 
 function drawMoldCloud(ctx, cx, cy, r, seed, alpha) {
+    if (typeof MildewCanvas !== 'undefined') {
+        MildewCanvas.drawMoldCloud(ctx, cx, cy, r, seed, alpha);
+        return;
+    }
     const rand = seededRandom(seed*7);
     const layers = 5;
     const baseColors = ['#6B8E23','#556B2F','#808000','#8FBC8F','#2E4A2E'];
@@ -1025,6 +1033,10 @@ function hexToRgba(hex, a) {
 
 function drawFullTextile(textile, showHoles, showMold) {
     currentTextile = textile;
+    if (typeof MildewCanvas !== 'undefined') {
+        MildewCanvas.drawFullTextile(textile, showHoles, showMold, canvasScale);
+        return;
+    }
     const canvas = document.getElementById('textileCanvas');
     const overlay = document.getElementById('overlayCanvas');
     if (!canvas) return;
@@ -1238,6 +1250,15 @@ function zoomCanvas(delta) {
         applyCanvasTransform();
         const info = document.getElementById('canvasZoom');
         if (info) info.textContent = `${Math.round(canvasScale*100)}%`;
+
+        if (typeof MildewCanvas !== 'undefined' && currentTextile) {
+            MildewCanvas.scheduleRedraw('textileCanvas', () => {
+                MildewCanvas.drawFullTextile(currentTextile,
+                    document.getElementById('toggleHoles')?.checked,
+                    document.getElementById('toggleMold')?.checked,
+                    canvasScale);
+            }, 100);
+        }
     }
 }
 

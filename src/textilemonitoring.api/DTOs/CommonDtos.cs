@@ -170,6 +170,8 @@ namespace TextileMonitoring.API.DTOs
         public decimal? PredictedHoleDensity { get; set; }
         public decimal? PredictedFungiCFU { get; set; }
         public decimal? PredictedSynergyRisk { get; set; }
+        public decimal? PredatorDensity { get; set; }
+        public decimal? PredationRate { get; set; }
     }
 
     public class DashboardStatsDto
